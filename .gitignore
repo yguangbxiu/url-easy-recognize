@@ -1,0 +1,19 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets & local config
+.env
+.env.*
+*.pem
+
+# Build / deps
+node_modules/
+dist/
+*.zip
