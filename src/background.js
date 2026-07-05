@@ -7,22 +7,22 @@ function isApplicableUrl(url) {
   return !SKIPPED_URL_PREFIXES.some((prefix) => url.startsWith(prefix));
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function sendTitleMessage(tabId, message) {
-  try {
-    await chrome.tabs.sendMessage(tabId, message);
-    return true;
-  } catch {
+  for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await chrome.scripting.executeScript({
-        target: { tabId },
-        files: ["src/content.js"],
-      });
       await chrome.tabs.sendMessage(tabId, message);
       return true;
     } catch {
-      return false;
+      if (attempt < 4) {
+        await delay(50 * (attempt + 1));
+      }
     }
   }
+  return false;
 }
 
 async function applyTitleToTab(tabId, url) {

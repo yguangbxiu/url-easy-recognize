@@ -1,3 +1,7 @@
+(() => {
+  if (globalThis.__URL_EASY_RECOGNIZE__) return;
+  globalThis.__URL_EASY_RECOGNIZE__ = true;
+
 let bookmarkTitle = null;
 let titleObserver = null;
 let headObserver = null;
@@ -85,3 +89,4 @@ chrome.runtime.onMessage.addListener((message) => {
     clearBookmarkTitle();
   }
 });
+})();
