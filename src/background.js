@@ -4,6 +4,11 @@ const SKIPPED_URL_PREFIXES = ["chrome://", "chrome-extension://", "edge://", "ab
 
 const SETTINGS_POPUP_PATH = "popup/settings.html";
 const CLICK_DELAY_MS = 300;
+const TAB_SWITCHER_COMMAND = "open-tab-switcher";
+const TAB_SWITCHER_POPUP = "popup/tab-switcher.html";
+const TAB_SWITCHER_FILES = ["src/shortcut.js", "src/tab-switcher.js"];
+
+let tabSwitcherWindowId = null;
 
 let clickTimer = null;
 
@@ -76,9 +81,95 @@ async function handleToggleEnabled() {
   await reapplyAllTabs();
 }
 
+async function syncTabSwitcherCommand(settings) {
+  if (!settings.tabSwitcher?.enabled) {
+    return { ok: false, error: "功能已禁用" };
+  }
+
+  const chromeShortcut = shortcutToChromeCommand(settings.tabSwitcher.shortcut);
+  if (!chromeShortcut) {
+    return { ok: false, error: "快捷键无效" };
+  }
+
+  try {
+    await chrome.commands.update({
+      name: TAB_SWITCHER_COMMAND,
+      shortcut: chromeShortcut,
+    });
+    return { ok: true, chromeShortcut };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message ?? String(error),
+      chromeShortcut,
+    };
+  }
+}
+
+async function openTabSwitcherOnActiveTab() {
+  const settings = getSettings();
+  if (!settings.tabSwitcher?.enabled) return false;
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !isApplicableUrl(tab.url)) return false;
+
+  const open = () => chrome.tabs.sendMessage(tab.id, { type: "OPEN_TAB_SWITCHER" });
+
+  try {
+    await open();
+    return true;
+  } catch {
+    // 扩展重载后旧页面尚未注入脚本
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      files: TAB_SWITCHER_FILES,
+    });
+    await delay(100);
+    await open();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function openTabSwitcherPopup() {
+  const settings = getSettings();
+  if (!settings.tabSwitcher?.enabled) return;
+
+  if (tabSwitcherWindowId != null) {
+    try {
+      await chrome.windows.get(tabSwitcherWindowId);
+      await chrome.windows.update(tabSwitcherWindowId, { focused: true });
+      return;
+    } catch {
+      tabSwitcherWindowId = null;
+    }
+  }
+
+  const win = await chrome.windows.create({
+    url: chrome.runtime.getURL(TAB_SWITCHER_POPUP),
+    type: "popup",
+    width: 660,
+    height: 520,
+    focused: true,
+  });
+  tabSwitcherWindowId = win.id;
+}
+
+async function openTabSwitcher() {
+  const openedOnPage = await openTabSwitcherOnActiveTab();
+  if (!openedOnPage) {
+    await openTabSwitcherPopup();
+  }
+}
+
 async function bootstrap() {
   await loadSettings();
   updateActionTitle(getSettings());
+  await syncTabSwitcherCommand(getSettings());
   await refreshBookmarkIndex();
   await reapplyAllTabs();
 }
@@ -87,9 +178,89 @@ bootstrap().catch(() => {});
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "sync" || !changes[SETTINGS_KEY]) return;
-  cachedSettings = { ...DEFAULTS, ...changes[SETTINGS_KEY].newValue };
+  cachedSettings = mergeSettings(changes[SETTINGS_KEY].newValue ?? {});
   updateActionTitle(cachedSettings);
+  syncTabSwitcherCommand(cachedSettings).catch(() => {});
   reapplyAllTabs().catch(() => {});
+});
+
+async function getTabSwitcherTabs() {
+  const tabs = await chrome.tabs.query({});
+  const settings = getSettings();
+
+  return tabs
+    .filter((tab) => tab.id != null)
+    .map((tab) => {
+      let bookmarkTitle = null;
+      if (settings.enabled && tab.url) {
+        const title = lookupBookmarkTitle(tab.url);
+        if (title) {
+          bookmarkTitle = truncateTitle(title, settings);
+        }
+      }
+
+      return {
+        id: tab.id,
+        title: tab.title ?? "",
+        url: tab.url ?? "",
+        favIconUrl: tab.favIconUrl ?? "",
+        windowId: tab.windowId,
+        active: tab.active,
+        index: tab.index,
+        bookmarkTitle,
+      };
+    });
+}
+
+async function activateTab(tabId, windowId) {
+  if (windowId != null) {
+    await chrome.windows.update(windowId, { focused: true });
+  }
+  await chrome.tabs.update(tabId, { active: true });
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === "TAB_SWITCHER_GET_TABS") {
+    getTabSwitcherTabs()
+      .then((tabs) => sendResponse({ tabs }))
+      .catch(() => sendResponse({ tabs: [] }));
+    return true;
+  }
+
+  if (message.type === "TAB_SWITCHER_ACTIVATE") {
+    activateTab(message.tabId, message.windowId)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "OPEN_TAB_SWITCHER") {
+    openTabSwitcher()
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
+  if (message.type === "SYNC_TAB_SWITCHER_COMMAND") {
+    syncTabSwitcherCommand(getSettings())
+      .then((result) => sendResponse(result))
+      .catch((error) => sendResponse({ ok: false, error: error?.message ?? String(error) }));
+    return true;
+  }
+
+  return false;
+});
+
+chrome.commands.onCommand.addListener((command) => {
+  if (command === TAB_SWITCHER_COMMAND) {
+    openTabSwitcher().catch(() => {});
+  }
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === tabSwitcherWindowId) {
+    tabSwitcherWindowId = null;
+  }
 });
 
 chrome.action.onClicked.addListener(() => {

@@ -19,7 +19,7 @@
     },
     "default_title": "URL Easy Recognize"
   },
-  "permissions": ["bookmarks", "tabs", "storage", "webNavigation"],
+  "permissions": ["bookmarks", "tabs", "storage", "webNavigation", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js"
@@ -29,6 +29,20 @@
       "matches": ["<all_urls>"],
       "js": ["src/content.js"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["src/shortcut.js", "src/tab-switcher.js"],
+      "run_at": "document_start"
     }
-  ]
+  ],
+  "commands": {
+    "open-tab-switcher": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+G",
+        "mac": "Command+Shift+G"
+      },
+      "description": "打开标签页搜索弹窗"
+    }
+  }
 }

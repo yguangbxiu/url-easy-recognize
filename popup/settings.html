@@ -45,7 +45,29 @@
     </fieldset>
 
     <p class="hint">双击扩展图标可快速切换「展示书签名称」开关</p>
+
+    <fieldset id="tab-switcher-section">
+      <legend>标签页搜索</legend>
+      <label>
+        <input type="radio" name="tabSwitcherEnabled" value="true">
+        启用
+      </label>
+      <label>
+        <input type="radio" name="tabSwitcherEnabled" value="false">
+        禁用
+      </label>
+
+      <div class="shortcut-row">
+        <span class="shortcut-label">快捷键</span>
+        <code id="shortcutDisplay">Cmd+Shift+G</code>
+        <button type="button" id="recordShortcut" class="secondary-button">录制快捷键</button>
+        <button type="button" id="resetShortcut" class="secondary-button">重置默认</button>
+        <button type="button" id="testTabSwitcher" class="secondary-button">测试打开</button>
+      </div>
+      <p id="shortcutHint" class="field-hint">默认 Cmd+Shift+G。保存后请刷新已打开的网页；若仍无效请到 chrome://extensions/shortcuts 手动分配</p>
+    </fieldset>
   </main>
+  <script src="../src/shortcut.js"></script>
   <script src="settings.js"></script>
 </body>
 </html>

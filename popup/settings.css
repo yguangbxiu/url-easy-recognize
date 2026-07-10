@@ -62,6 +62,54 @@ label {
   pointer-events: none;
 }
 
+#tab-switcher-section.disabled .shortcut-row,
+#tab-switcher-section.disabled .field-hint {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.shortcut-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.shortcut-label {
+  font-weight: 500;
+}
+
+#shortcutDisplay {
+  min-width: 72px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: #f1f3f4;
+  font-size: 13px;
+}
+
+.secondary-button {
+  border: 1px solid #dadce0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  background: #fff;
+  color: #202124;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.secondary-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.field-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: #5f6368;
+  line-height: 1.4;
+}
+
 .hint {
   margin: 12px 0 0;
   font-size: 12px;

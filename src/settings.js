@@ -1,12 +1,23 @@
+importScripts("shortcut.js");
+
 const SETTINGS_KEY = "settings";
 
 const DEFAULTS = {
   enabled: true,
   lengthMode: "all",
   customLength: 10,
+  tabSwitcher: { ...DEFAULT_TAB_SWITCHER, shortcut: { ...DEFAULT_TAB_SWITCHER.shortcut } },
 };
 
-let cachedSettings = { ...DEFAULTS };
+let cachedSettings = structuredClone(DEFAULTS);
+
+function mergeSettings(stored) {
+  return {
+    ...DEFAULTS,
+    ...stored,
+    tabSwitcher: mergeTabSwitcherSettings(stored),
+  };
+}
 
 function truncateTitle(title, settings) {
   if (!title) return title;
@@ -24,7 +35,7 @@ function truncateTitle(title, settings) {
 
 async function loadSettings() {
   const result = await chrome.storage.sync.get(SETTINGS_KEY);
-  cachedSettings = { ...DEFAULTS, ...(result[SETTINGS_KEY] ?? {}) };
+  cachedSettings = mergeSettings(result[SETTINGS_KEY] ?? {});
   return cachedSettings;
 }
 
@@ -33,7 +44,13 @@ function getSettings() {
 }
 
 async function saveSettings(partial) {
-  cachedSettings = { ...cachedSettings, ...partial };
+  const next = { ...cachedSettings, ...partial };
+  if (partial.tabSwitcher) {
+    next.tabSwitcher = mergeTabSwitcherSettings({
+      tabSwitcher: { ...cachedSettings.tabSwitcher, ...partial.tabSwitcher },
+    });
+  }
+  cachedSettings = next;
   await chrome.storage.sync.set({ [SETTINGS_KEY]: cachedSettings });
   return cachedSettings;
 }
