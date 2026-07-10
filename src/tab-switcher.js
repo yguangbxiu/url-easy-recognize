@@ -8,6 +8,9 @@
   const PANEL_MIN_HEIGHT = 160;
   const VIEWPORT_MARGIN = 12;
   const CURSOR_OFFSET = 6;
+  const MAX_ITEM_SHORTCUTS = 9;
+  const ITEM_SELECTOR = ".tab-switcher-item";
+  const BADGE_SELECTOR = ".tab-switcher-shortcut";
 
   let tabSwitcherSettings = mergeTabSwitcherSettings({});
   let lastMouse = { x: 0, y: 0 };
@@ -100,6 +103,38 @@
     panelEl.style.maxHeight = `${position.maxHeight}px`;
   }
 
+  function getModifierLabel() {
+    return isMacPlatform() ? "Cmd" : "Ctrl";
+  }
+
+  function getVisibleItemIndices(container, itemSelector) {
+    const containerRect = container.getBoundingClientRect();
+    const indices = [];
+    container.querySelectorAll(itemSelector).forEach((item, index) => {
+      const rect = item.getBoundingClientRect();
+      if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+        indices.push(index);
+      }
+    });
+    return indices;
+  }
+
+  function updateShortcutBadges() {
+    if (!listEl) return;
+    const visibleIndices = getVisibleItemIndices(listEl, ITEM_SELECTOR);
+    listEl.querySelectorAll(ITEM_SELECTOR).forEach((item, index) => {
+      const badge = item.querySelector(BADGE_SELECTOR);
+      if (!badge) return;
+      const pos = visibleIndices.indexOf(index);
+      if (pos >= 0 && pos < MAX_ITEM_SHORTCUTS) {
+        badge.textContent = `${getModifierLabel()} ${pos + 1}`;
+        badge.hidden = false;
+      } else {
+        badge.hidden = true;
+      }
+    });
+  }
+
   function filterTabs(query) {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
@@ -151,10 +186,15 @@
       url.className = "tab-switcher-url";
       url.textContent = tab.url || "";
 
+      const shortcut = document.createElement("span");
+      shortcut.className = "tab-switcher-shortcut";
+      shortcut.hidden = true;
+
       content.appendChild(title);
       content.appendChild(url);
       item.appendChild(favicon);
       item.appendChild(content);
+      item.appendChild(shortcut);
       item.addEventListener("click", () => {
         activateTab(tab);
       });
@@ -162,6 +202,7 @@
     });
 
     listEl.querySelector(".tab-switcher-item.selected")?.scrollIntoView({ block: "nearest" });
+    updateShortcutBadges();
   }
 
   function updateSelection(nextIndex) {
@@ -287,6 +328,17 @@
         color: #5f6368;
         font-size: 14px;
       }
+
+      .tab-switcher-shortcut {
+        flex: 0 0 auto;
+        margin-left: 8px;
+        font-size: 11px;
+        color: #5f6368;
+        background: #f1f3f4;
+        border-radius: 4px;
+        padding: 2px 6px;
+        white-space: nowrap;
+      }
     `;
   }
 
@@ -314,6 +366,7 @@
 
     listEl = document.createElement("div");
     listEl.className = "tab-switcher-list";
+    listEl.addEventListener("scroll", updateShortcutBadges);
 
     panelEl.appendChild(searchInput);
     panelEl.appendChild(listEl);
@@ -349,6 +402,14 @@
       } else if (event.key === "Escape") {
         event.preventDefault();
         closeOverlay();
+      } else {
+        const num = parseInt(event.key, 10);
+        if (num >= 1 && num <= 9 && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+          event.preventDefault();
+          const visibleIndices = getVisibleItemIndices(listEl, ITEM_SELECTOR);
+          const tab = filteredTabs[visibleIndices[num - 1]];
+          if (tab) activateTab(tab);
+        }
       }
     });
   }

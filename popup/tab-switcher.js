@@ -1,12 +1,47 @@
 const searchInput = document.getElementById("searchInput");
 const tabListEl = document.getElementById("tabList");
 
+const MAX_ITEM_SHORTCUTS = 9;
+const ITEM_SELECTOR = ".tab-item";
+const BADGE_SELECTOR = ".tab-shortcut";
+
 let allTabs = [];
 let filteredTabs = [];
 let selectedIndex = 0;
 
 function sendMessage(message) {
   return chrome.runtime.sendMessage(message);
+}
+
+function getModifierLabel() {
+  return isMacPlatform() ? "Cmd" : "Ctrl";
+}
+
+function getVisibleItemIndices(container, itemSelector) {
+  const containerRect = container.getBoundingClientRect();
+  const indices = [];
+  container.querySelectorAll(itemSelector).forEach((item, index) => {
+    const rect = item.getBoundingClientRect();
+    if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+      indices.push(index);
+    }
+  });
+  return indices;
+}
+
+function updateShortcutBadges() {
+  const visibleIndices = getVisibleItemIndices(tabListEl, ITEM_SELECTOR);
+  tabListEl.querySelectorAll(ITEM_SELECTOR).forEach((item, index) => {
+    const badge = item.querySelector(BADGE_SELECTOR);
+    if (!badge) return;
+    const pos = visibleIndices.indexOf(index);
+    if (pos >= 0 && pos < MAX_ITEM_SHORTCUTS) {
+      badge.textContent = `${getModifierLabel()} ${pos + 1}`;
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  });
 }
 
 function filterTabs(query) {
@@ -59,10 +94,15 @@ function renderList() {
     url.className = "tab-url";
     url.textContent = tab.url || "";
 
+    const shortcut = document.createElement("span");
+    shortcut.className = "tab-shortcut";
+    shortcut.hidden = true;
+
     content.appendChild(title);
     content.appendChild(url);
     item.appendChild(favicon);
     item.appendChild(content);
+    item.appendChild(shortcut);
 
     item.addEventListener("click", () => {
       activateTab(tab);
@@ -72,6 +112,7 @@ function renderList() {
   });
 
   tabListEl.querySelector(".tab-item.selected")?.scrollIntoView({ block: "nearest" });
+  updateShortcutBadges();
 }
 
 function updateSelection(nextIndex) {
@@ -127,8 +168,18 @@ searchInput.addEventListener("keydown", (event) => {
   } else if (event.key === "Escape") {
     event.preventDefault();
     window.close();
+  } else {
+    const num = parseInt(event.key, 10);
+    if (num >= 1 && num <= 9 && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      const visibleIndices = getVisibleItemIndices(tabListEl, ITEM_SELECTOR);
+      const tab = filteredTabs[visibleIndices[num - 1]];
+      if (tab) activateTab(tab);
+    }
   }
 });
+
+tabListEl.addEventListener("scroll", updateShortcutBadges);
 
 loadTabs().catch(() => {
   tabListEl.textContent = "";
