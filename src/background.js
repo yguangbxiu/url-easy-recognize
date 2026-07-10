@@ -1,6 +1,11 @@
-importScripts("bookmark-index.js");
+importScripts("bookmark-index.js", "settings.js");
 
 const SKIPPED_URL_PREFIXES = ["chrome://", "chrome-extension://", "edge://", "about:"];
+
+const SETTINGS_POPUP_PATH = "popup/settings.html";
+const CLICK_DELAY_MS = 300;
+
+let clickTimer = null;
 
 function isApplicableUrl(url) {
   if (!url) return false;
@@ -28,9 +33,16 @@ async function sendTitleMessage(tabId, message) {
 async function applyTitleToTab(tabId, url) {
   if (!isApplicableUrl(url)) return;
 
+  const settings = getSettings();
+  if (!settings.enabled) {
+    await sendTitleMessage(tabId, { type: "CLEAR_BOOKMARK_TITLE" });
+    return;
+  }
+
   const title = lookupBookmarkTitle(url);
   if (title) {
-    await sendTitleMessage(tabId, { type: "SET_BOOKMARK_TITLE", title });
+    const displayTitle = truncateTitle(title, settings);
+    await sendTitleMessage(tabId, { type: "SET_BOOKMARK_TITLE", title: displayTitle });
   } else {
     await sendTitleMessage(tabId, { type: "CLEAR_BOOKMARK_TITLE" });
   }
@@ -40,14 +52,79 @@ function scheduleApplyTitleToTab(tabId, url) {
   applyTitleToTab(tabId, url).catch(() => {});
 }
 
-refreshBookmarkIndex().catch(() => {});
+async function reapplyAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (tab.id != null && tab.url) {
+      await applyTitleToTab(tab.id, tab.url);
+    }
+  }
+}
+
+async function openSettingsPopup() {
+  await chrome.action.setPopup({ popup: SETTINGS_POPUP_PATH });
+  try {
+    await chrome.action.openPopup();
+  } finally {
+    await chrome.action.setPopup({ popup: "" });
+  }
+}
+
+async function handleToggleEnabled() {
+  const settings = await toggleEnabled();
+  updateActionTitle(settings);
+  await reapplyAllTabs();
+}
+
+async function bootstrap() {
+  await loadSettings();
+  updateActionTitle(getSettings());
+  await refreshBookmarkIndex();
+  await reapplyAllTabs();
+}
+
+bootstrap().catch(() => {});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "sync" || !changes[SETTINGS_KEY]) return;
+  cachedSettings = { ...DEFAULTS, ...changes[SETTINGS_KEY].newValue };
+  updateActionTitle(cachedSettings);
+  reapplyAllTabs().catch(() => {});
+});
+
+chrome.action.onClicked.addListener(() => {
+  if (clickTimer) {
+    clearTimeout(clickTimer);
+    clickTimer = null;
+    handleToggleEnabled().catch(() => {});
+    return;
+  }
+
+  openSettingsPopup().catch(() => {});
+
+  clickTimer = setTimeout(() => {
+    clickTimer = null;
+  }, CLICK_DELAY_MS);
+});
 
 chrome.runtime.onInstalled.addListener(() => {
-  refreshBookmarkIndex().catch(() => {});
+  loadSettings()
+    .then((settings) => {
+      updateActionTitle(settings);
+      return refreshBookmarkIndex();
+    })
+    .then(() => reapplyAllTabs())
+    .catch(() => {});
 });
 
 chrome.runtime.onStartup.addListener(() => {
-  refreshBookmarkIndex().catch(() => {});
+  loadSettings()
+    .then((settings) => {
+      updateActionTitle(settings);
+      return refreshBookmarkIndex();
+    })
+    .then(() => reapplyAllTabs())
+    .catch(() => {});
 });
 
 chrome.bookmarks.onCreated.addListener(() => {

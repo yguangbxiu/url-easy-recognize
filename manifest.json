@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "URL Easy Recognize",
   "version": "1.0.0",
+  "minimum_chrome_version": "127",
   "description": "将已加入书签的网站标签页标题替换为书签名，便于区分 dev/test/uat 等多环境。",
   "icons": {
     "16": "icons/icon-16.png",

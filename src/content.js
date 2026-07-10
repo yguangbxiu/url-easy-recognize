@@ -3,6 +3,7 @@
   globalThis.__URL_EASY_RECOGNIZE__ = true;
 
 let bookmarkTitle = null;
+let originalTitle = null;
 let titleObserver = null;
 let headObserver = null;
 let reapplyTimer = null;
@@ -72,13 +73,20 @@ function disconnectObservers() {
 }
 
 function setBookmarkTitle(title) {
+  if (originalTitle == null) {
+    originalTitle = document.title;
+  }
   bookmarkTitle = title;
   applyTitle();
   ensureTitleObserver();
 }
 
 function clearBookmarkTitle() {
+  if (originalTitle != null) {
+    document.title = originalTitle;
+  }
   bookmarkTitle = null;
+  originalTitle = null;
   disconnectObservers();
 }
 

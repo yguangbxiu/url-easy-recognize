@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URL Easy Recognize 设置</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <main>
+    <h1>设置</h1>
+
+    <fieldset>
+      <legend>书签名称</legend>
+      <label>
+        <input type="radio" name="enabled" value="true">
+        是
+      </label>
+      <label>
+        <input type="radio" name="enabled" value="false">
+        否
+      </label>
+    </fieldset>
+
+    <fieldset id="length-section">
+      <legend>显示前几个字符</legend>
+      <label>
+        <input type="radio" name="lengthMode" value="all">
+        全部
+      </label>
+      <label>
+        <input type="radio" name="lengthMode" value="first3">
+        前 3 个字符
+      </label>
+      <label>
+        <input type="radio" name="lengthMode" value="first5">
+        前 5 个字符
+      </label>
+      <label class="custom-row">
+        <input type="radio" name="lengthMode" value="custom">
+        其他
+        <input type="number" id="customLength" min="1" max="100" value="10">
+        个字符
+      </label>
+    </fieldset>
+
+    <p class="hint">双击扩展图标可快速切换「展示书签名称」开关</p>
+  </main>
+  <script src="settings.js"></script>
+</body>
+</html>
