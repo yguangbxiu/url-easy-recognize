@@ -8,6 +8,7 @@ const BADGE_SELECTOR = ".tab-shortcut";
 let allTabs = [];
 let filteredTabs = [];
 let selectedIndex = 0;
+let modifierLabel = getModifierLabel();
 
 function sendMessage(message) {
   return chrome.runtime.sendMessage(message);
@@ -17,31 +18,48 @@ function getModifierLabel() {
   return isMacPlatform() ? "Cmd" : "Ctrl";
 }
 
+function refreshModifierLabel() {
+  modifierLabel = getModifierLabel();
+}
+
 function getVisibleItemIndices(container, itemSelector) {
-  const containerRect = container.getBoundingClientRect();
+  const scrollTop = container.scrollTop;
+  const viewportBottom = scrollTop + container.clientHeight;
   const indices = [];
-  container.querySelectorAll(itemSelector).forEach((item, index) => {
-    const rect = item.getBoundingClientRect();
-    if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+  const items = container.querySelectorAll(itemSelector);
+  for (let index = 0; index < items.length; index++) {
+    const item = items[index];
+    const top = item.offsetTop;
+    const bottom = top + item.offsetHeight;
+    if (bottom > scrollTop && top < viewportBottom) {
       indices.push(index);
     }
-  });
+  }
   return indices;
 }
 
 function updateShortcutBadges() {
   const visibleIndices = getVisibleItemIndices(tabListEl, ITEM_SELECTOR);
-  tabListEl.querySelectorAll(ITEM_SELECTOR).forEach((item, index) => {
-    const badge = item.querySelector(BADGE_SELECTOR);
-    if (!badge) return;
-    const pos = visibleIndices.indexOf(index);
-    if (pos >= 0 && pos < MAX_ITEM_SHORTCUTS) {
-      badge.textContent = `${getModifierLabel()} ${pos + 1}`;
+  const visibleRank = new Map(visibleIndices.map((index, pos) => [index, pos]));
+  const items = tabListEl.querySelectorAll(ITEM_SELECTOR);
+  for (let index = 0; index < items.length; index++) {
+    const badge = items[index].querySelector(BADGE_SELECTOR);
+    if (!badge) continue;
+    const pos = visibleRank.get(index);
+    if (pos !== undefined && pos < MAX_ITEM_SHORTCUTS) {
+      badge.textContent = `${modifierLabel} ${pos + 1}`;
       badge.hidden = false;
     } else {
       badge.hidden = true;
     }
-  });
+  }
+}
+
+function syncListSelection() {
+  const selected = tabListEl.querySelector(`${ITEM_SELECTOR}.selected`);
+  selected?.scrollIntoView({ block: "nearest" });
+  updateShortcutBadges();
+  requestAnimationFrame(updateShortcutBadges);
 }
 
 function filterTabs(query) {
@@ -58,6 +76,7 @@ function filterTabs(query) {
 }
 
 function renderList() {
+  refreshModifierLabel();
   tabListEl.textContent = "";
 
   if (filteredTabs.length === 0) {
@@ -96,7 +115,11 @@ function renderList() {
 
     const shortcut = document.createElement("span");
     shortcut.className = "tab-shortcut";
-    shortcut.hidden = true;
+    if (index < MAX_ITEM_SHORTCUTS) {
+      shortcut.textContent = `${modifierLabel} ${index + 1}`;
+    } else {
+      shortcut.hidden = true;
+    }
 
     content.appendChild(title);
     content.appendChild(url);
@@ -111,8 +134,7 @@ function renderList() {
     tabListEl.appendChild(item);
   });
 
-  tabListEl.querySelector(".tab-item.selected")?.scrollIntoView({ block: "nearest" });
-  updateShortcutBadges();
+  syncListSelection();
 }
 
 function updateSelection(nextIndex) {
@@ -122,7 +144,17 @@ function updateSelection(nextIndex) {
     return;
   }
 
-  selectedIndex = Math.max(0, Math.min(filteredTabs.length - 1, nextIndex));
+  const newIndex = Math.max(0, Math.min(filteredTabs.length - 1, nextIndex));
+  const items = tabListEl.querySelectorAll(ITEM_SELECTOR);
+  if (items.length && newIndex !== selectedIndex) {
+    items[selectedIndex]?.classList.remove("selected");
+    selectedIndex = newIndex;
+    items[selectedIndex]?.classList.add("selected");
+    syncListSelection();
+    return;
+  }
+
+  selectedIndex = newIndex;
   renderList();
 }
 
