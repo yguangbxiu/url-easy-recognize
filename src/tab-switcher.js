@@ -138,14 +138,38 @@
     });
   }
 
+  function getVisibleItemIndices(container, itemSelector) {
+    const containerRect = container.getBoundingClientRect();
+    const indices = [];
+    const items = container.querySelectorAll(itemSelector);
+    for (let index = 0; index < items.length; index++) {
+      const rect = items[index].getBoundingClientRect();
+      if (rect.bottom > containerRect.top && rect.top < containerRect.bottom) {
+        indices.push(index);
+      }
+    }
+    return indices;
+  }
+
+  function getEffectiveVisibleIndices(container, itemSelector) {
+    const visible = getVisibleItemIndices(container, itemSelector);
+    if (visible.length > 0) return visible.slice(0, MAX_ITEM_SHORTCUTS);
+    const count = container.querySelectorAll(itemSelector).length;
+    if (count === 0) return [];
+    return Array.from({ length: Math.min(MAX_ITEM_SHORTCUTS, count) }, (_, i) => i);
+  }
+
   function updateShortcutBadges() {
     if (!listEl) return;
+    const visibleIndices = getEffectiveVisibleIndices(listEl, ITEM_SELECTOR);
+    const visibleRank = new Map(visibleIndices.map((index, pos) => [index, pos]));
     const items = listEl.querySelectorAll(ITEM_SELECTOR);
     for (let index = 0; index < items.length; index++) {
       const badge = items[index].querySelector(BADGE_SELECTOR);
       if (!badge) continue;
-      if (index < MAX_ITEM_SHORTCUTS) {
-        badge.textContent = `${modifierLabel} ${index + 1}`;
+      const pos = visibleRank.get(index);
+      if (pos !== undefined) {
+        badge.textContent = `${modifierLabel} ${pos + 1}`;
         badge.hidden = false;
       } else {
         badge.hidden = true;
@@ -155,7 +179,10 @@
 
   function flushShortcutBadges() {
     updateShortcutBadges();
-    requestAnimationFrame(updateShortcutBadges);
+    requestAnimationFrame(() => {
+      updateShortcutBadges();
+      requestAnimationFrame(updateShortcutBadges);
+    });
   }
 
   function isSelectedVisible() {
@@ -249,12 +276,7 @@
 
       const shortcut = document.createElement("span");
       shortcut.className = "tab-switcher-shortcut";
-      if (index < MAX_ITEM_SHORTCUTS) {
-        shortcut.textContent = `${modifierLabel} ${index + 1}`;
-        shortcut.hidden = false;
-      } else {
-        shortcut.hidden = true;
-      }
+      shortcut.hidden = true;
 
       content.appendChild(title);
       content.appendChild(subtitle);
@@ -380,7 +402,8 @@
       const num = parseInt(event.key, 10);
       if (num >= 1 && num <= 9 && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
         event.preventDefault();
-        const item = filteredItems[num - 1];
+        const visibleIndices = getEffectiveVisibleIndices(listEl, ITEM_SELECTOR);
+        const item = filteredItems[visibleIndices[num - 1]];
         if (item) activateItem(item);
       }
     }
