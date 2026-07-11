@@ -16,6 +16,35 @@ main {
   height: 100vh;
 }
 
+.view-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid #dadce0;
+  padding: 0 8px;
+  gap: 4px;
+}
+
+.view-tab {
+  border: 0;
+  background: transparent;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #5f6368;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.view-tab.active {
+  color: #1a73e8;
+  border-bottom-color: #1a73e8;
+}
+
+.view-tab:hover:not(.active) {
+  color: #202124;
+}
+
 .search-input {
   width: 100%;
   border: 0;

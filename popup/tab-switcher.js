@@ -1,12 +1,18 @@
 const searchInput = document.getElementById("searchInput");
 const tabListEl = document.getElementById("tabList");
+const viewTabButtons = document.querySelectorAll(".view-tab");
 
 const MAX_ITEM_SHORTCUTS = 9;
 const ITEM_SELECTOR = ".tab-item";
 const BADGE_SELECTOR = ".tab-shortcut";
 
+const initialView = new URLSearchParams(window.location.search).get("view") === "history" ? "history" : "tabs";
+
+let activeView = "tabs";
 let allTabs = [];
-let filteredTabs = [];
+let allHistory = [];
+let filteredItems = [];
+let historyLoaded = false;
 let selectedIndex = 0;
 let modifierLabel = getModifierLabel();
 
@@ -22,32 +28,33 @@ function refreshModifierLabel() {
   modifierLabel = getModifierLabel();
 }
 
-function getVisibleItemIndices(container, itemSelector) {
-  const scrollTop = container.scrollTop;
-  const viewportBottom = scrollTop + container.clientHeight;
-  const indices = [];
-  const items = container.querySelectorAll(itemSelector);
-  for (let index = 0; index < items.length; index++) {
-    const item = items[index];
-    const top = item.offsetTop;
-    const bottom = top + item.offsetHeight;
-    if (bottom > scrollTop && top < viewportBottom) {
-      indices.push(index);
-    }
-  }
-  return indices;
+function formatRelativeTime(timestamp) {
+  if (!timestamp) return "";
+  const diffMs = Date.now() - timestamp;
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} 小时前`;
+  const date = new Date(timestamp);
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function sortTabsWithActiveFirst(tabs) {
+  return [...tabs].sort((a, b) => {
+    if (a.active !== b.active) return a.active ? -1 : 1;
+    if (a.windowId !== b.windowId) return (a.windowId ?? 0) - (b.windowId ?? 0);
+    return (a.index ?? 0) - (b.index ?? 0);
+  });
 }
 
 function updateShortcutBadges() {
-  const visibleIndices = getVisibleItemIndices(tabListEl, ITEM_SELECTOR);
-  const visibleRank = new Map(visibleIndices.map((index, pos) => [index, pos]));
   const items = tabListEl.querySelectorAll(ITEM_SELECTOR);
   for (let index = 0; index < items.length; index++) {
     const badge = items[index].querySelector(BADGE_SELECTOR);
     if (!badge) continue;
-    const pos = visibleRank.get(index);
-    if (pos !== undefined && pos < MAX_ITEM_SHORTCUTS) {
-      badge.textContent = `${modifierLabel} ${pos + 1}`;
+    if (index < MAX_ITEM_SHORTCUTS) {
+      badge.textContent = `${modifierLabel} ${index + 1}`;
       badge.hidden = false;
     } else {
       badge.hidden = true;
@@ -55,49 +62,79 @@ function updateShortcutBadges() {
   }
 }
 
-function syncListSelection() {
-  const selected = tabListEl.querySelector(`${ITEM_SELECTOR}.selected`);
-  selected?.scrollIntoView({ block: "nearest" });
+function flushShortcutBadges() {
   updateShortcutBadges();
   requestAnimationFrame(updateShortcutBadges);
 }
 
-function filterTabs(query) {
+function isSelectedVisible() {
+  const items = tabListEl.querySelectorAll(ITEM_SELECTOR);
+  const item = items[selectedIndex];
+  if (!item) return true;
+  const containerRect = tabListEl.getBoundingClientRect();
+  const rect = item.getBoundingClientRect();
+  return rect.bottom > containerRect.top && rect.top < containerRect.bottom;
+}
+
+function syncListSelection(allowScroll = true) {
+  if (allowScroll && !isSelectedVisible()) {
+    const selected = tabListEl.querySelector(`${ITEM_SELECTOR}.selected`);
+    selected?.scrollIntoView({ block: "nearest" });
+  }
+  flushShortcutBadges();
+}
+
+function getCurrentItems() {
+  return activeView === "tabs" ? allTabs : allHistory;
+}
+
+function filterItems(query) {
+  const source = getCurrentItems();
   const normalized = query.trim().toLowerCase();
   if (!normalized) {
-    filteredTabs = [...allTabs];
+    filteredItems = [...source];
     return;
   }
 
-  filteredTabs = allTabs.filter((tab) => {
-    const haystack = [tab.title, tab.url, tab.bookmarkTitle].filter(Boolean).join(" ").toLowerCase();
+  filteredItems = source.filter((item) => {
+    const haystack = [item.title, item.url, item.bookmarkTitle].filter(Boolean).join(" ").toLowerCase();
     return haystack.includes(normalized);
   });
 }
 
-function renderList() {
+function updateTabBarHighlight() {
+  for (const button of viewTabButtons) {
+    button.classList.toggle("active", button.dataset.view === activeView);
+  }
+}
+
+function getEmptyMessage() {
+  return activeView === "tabs" ? "没有匹配的标签页" : "没有匹配的历史记录";
+}
+
+function renderList({ resetScroll = false } = {}) {
   refreshModifierLabel();
   tabListEl.textContent = "";
 
-  if (filteredTabs.length === 0) {
+  if (filteredItems.length === 0) {
     const empty = document.createElement("div");
     empty.className = "tab-empty";
-    empty.textContent = "没有匹配的标签页";
+    empty.textContent = getEmptyMessage();
     tabListEl.appendChild(empty);
     return;
   }
 
-  filteredTabs.forEach((tab, index) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "tab-item";
-    if (index === selectedIndex) item.classList.add("selected");
-    if (tab.active) item.classList.add("active-tab");
+  filteredItems.forEach((item, index) => {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "tab-item";
+    if (index === selectedIndex) row.classList.add("selected");
+    if (activeView === "tabs" && item.active) row.classList.add("active-tab");
 
     const favicon = document.createElement("img");
     favicon.className = "tab-favicon";
     favicon.alt = "";
-    favicon.src = tab.favIconUrl || "";
+    favicon.src = item.favIconUrl || "";
     favicon.onerror = () => {
       favicon.style.visibility = "hidden";
     };
@@ -107,44 +144,53 @@ function renderList() {
 
     const title = document.createElement("div");
     title.className = "tab-title";
-    title.textContent = tab.bookmarkTitle || tab.title || tab.url || "无标题";
+    title.textContent = item.bookmarkTitle || item.title || item.url || "无标题";
 
-    const url = document.createElement("div");
-    url.className = "tab-url";
-    url.textContent = tab.url || "";
+    const subtitle = document.createElement("div");
+    subtitle.className = "tab-url";
+    if (activeView === "history") {
+      const timeLabel = formatRelativeTime(item.lastVisitTime);
+      subtitle.textContent = timeLabel ? `${timeLabel} · ${item.url || ""}` : item.url || "";
+    } else {
+      subtitle.textContent = item.url || "";
+    }
 
     const shortcut = document.createElement("span");
     shortcut.className = "tab-shortcut";
     if (index < MAX_ITEM_SHORTCUTS) {
       shortcut.textContent = `${modifierLabel} ${index + 1}`;
+      shortcut.hidden = false;
     } else {
       shortcut.hidden = true;
     }
 
     content.appendChild(title);
-    content.appendChild(url);
-    item.appendChild(favicon);
-    item.appendChild(content);
-    item.appendChild(shortcut);
+    content.appendChild(subtitle);
+    row.appendChild(favicon);
+    row.appendChild(content);
+    row.appendChild(shortcut);
 
-    item.addEventListener("click", () => {
-      activateTab(tab);
+    row.addEventListener("click", () => {
+      activateItem(item);
     });
 
-    tabListEl.appendChild(item);
+    tabListEl.appendChild(row);
   });
 
-  syncListSelection();
+  if (resetScroll) {
+    tabListEl.scrollTop = 0;
+  }
+  syncListSelection(!resetScroll);
 }
 
 function updateSelection(nextIndex) {
-  if (filteredTabs.length === 0) {
+  if (filteredItems.length === 0) {
     selectedIndex = 0;
     renderList();
     return;
   }
 
-  const newIndex = Math.max(0, Math.min(filteredTabs.length - 1, nextIndex));
+  const newIndex = Math.max(0, Math.min(filteredItems.length - 1, nextIndex));
   const items = tabListEl.querySelectorAll(ITEM_SELECTOR);
   if (items.length && newIndex !== selectedIndex) {
     items[selectedIndex]?.classList.remove("selected");
@@ -158,15 +204,24 @@ function updateSelection(nextIndex) {
   renderList();
 }
 
-async function activateTab(tab) {
-  if (!tab?.id) return;
+async function activateItem(item) {
+  if (!item) return;
 
   try {
-    await sendMessage({
-      type: "TAB_SWITCHER_ACTIVATE",
-      tabId: tab.id,
-      windowId: tab.windowId,
-    });
+    if (activeView === "tabs") {
+      if (!item.id) return;
+      await sendMessage({
+        type: "TAB_SWITCHER_ACTIVATE",
+        tabId: item.id,
+        windowId: item.windowId,
+      });
+    } else {
+      if (!item.url) return;
+      await sendMessage({
+        type: "TAB_SWITCHER_OPEN_URL",
+        url: item.url,
+      });
+    }
   } finally {
     window.close();
   }
@@ -174,19 +229,52 @@ async function activateTab(tab) {
 
 async function loadTabs() {
   const response = await sendMessage({ type: "TAB_SWITCHER_GET_TABS" });
-  allTabs = Array.isArray(response?.tabs) ? response.tabs : [];
-  filteredTabs = [...allTabs];
-  selectedIndex = Math.max(0, filteredTabs.findIndex((tab) => tab.active));
-  renderList();
+  allTabs = sortTabsWithActiveFirst(Array.isArray(response?.tabs) ? response.tabs : []);
+}
+
+async function loadHistoryIfNeeded() {
+  if (historyLoaded) return;
+  const response = await sendMessage({ type: "TAB_SWITCHER_GET_HISTORY" });
+  allHistory = Array.isArray(response?.items) ? response.items : [];
+  historyLoaded = true;
+}
+
+async function switchView(view) {
+  if (view === activeView) return;
+
+  activeView = view;
+  updateTabBarHighlight();
+
+  searchInput.value = "";
+  searchInput.placeholder = activeView === "tabs" ? "搜索已打开的标签页…" : "搜索历史记录…";
+
+  if (activeView === "history") {
+    await loadHistoryIfNeeded();
+  }
+
+  filterItems("");
+  selectedIndex = 0;
+  renderList({ resetScroll: true });
+  searchInput.focus();
+}
+
+function toggleView() {
+  switchView(activeView === "tabs" ? "history" : "tabs").catch(() => {});
 }
 
 searchInput.addEventListener("input", () => {
   selectedIndex = 0;
-  filterTabs(searchInput.value);
-  renderList();
+  filterItems(searchInput.value);
+  renderList({ resetScroll: true });
 });
 
 searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Tab") {
+    event.preventDefault();
+    toggleView();
+    return;
+  }
+
   if (event.key === "ArrowDown") {
     event.preventDefault();
     updateSelection(selectedIndex + 1);
@@ -195,8 +283,8 @@ searchInput.addEventListener("keydown", (event) => {
     updateSelection(selectedIndex - 1);
   } else if (event.key === "Enter") {
     event.preventDefault();
-    const tab = filteredTabs[selectedIndex];
-    if (tab) activateTab(tab);
+    const item = filteredItems[selectedIndex];
+    if (item) activateItem(item);
   } else if (event.key === "Escape") {
     event.preventDefault();
     window.close();
@@ -204,21 +292,42 @@ searchInput.addEventListener("keydown", (event) => {
     const num = parseInt(event.key, 10);
     if (num >= 1 && num <= 9 && (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey) {
       event.preventDefault();
-      const visibleIndices = getVisibleItemIndices(tabListEl, ITEM_SELECTOR);
-      const tab = filteredTabs[visibleIndices[num - 1]];
-      if (tab) activateTab(tab);
+      const item = filteredItems[num - 1];
+      if (item) activateItem(item);
     }
   }
 });
 
+for (const button of viewTabButtons) {
+  button.addEventListener("click", () => {
+    switchView(button.dataset.view).catch(() => {});
+  });
+}
+
 tabListEl.addEventListener("scroll", updateShortcutBadges);
 
-loadTabs().catch(() => {
-  tabListEl.textContent = "";
-  const empty = document.createElement("div");
-  empty.className = "tab-empty";
-  empty.textContent = "无法加载标签页列表";
-  tabListEl.appendChild(empty);
-});
+async function init() {
+  try {
+    await loadTabs();
+    activeView = "tabs";
+    filterItems("");
+    selectedIndex = 0;
+    updateTabBarHighlight();
+    renderList({ resetScroll: true });
+    flushShortcutBadges();
 
-searchInput.focus();
+    if (initialView === "history") {
+      await switchView("history");
+    } else {
+      searchInput.focus();
+    }
+  } catch {
+    tabListEl.textContent = "";
+    const empty = document.createElement("div");
+    empty.className = "tab-empty";
+    empty.textContent = "无法加载列表";
+    tabListEl.appendChild(empty);
+  }
+}
+
+init();

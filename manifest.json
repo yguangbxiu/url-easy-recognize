@@ -19,7 +19,7 @@
     },
     "default_title": "URL Easy Recognize"
   },
-  "permissions": ["bookmarks", "tabs", "storage", "webNavigation", "scripting"],
+  "permissions": ["bookmarks", "tabs", "storage", "webNavigation", "scripting", "history"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js"
@@ -43,6 +43,13 @@
         "mac": "Command+Shift+G"
       },
       "description": "打开标签页搜索弹窗"
+    },
+    "open-history-switcher": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+H",
+        "mac": "Command+Shift+H"
+      },
+      "description": "打开历史记录搜索弹窗"
     }
   }
 }

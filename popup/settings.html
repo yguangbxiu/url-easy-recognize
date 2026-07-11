@@ -58,13 +58,20 @@
       </label>
 
       <div class="shortcut-row">
-        <span class="shortcut-label">快捷键</span>
+        <span class="shortcut-label">已打开标签页</span>
         <code id="shortcutDisplay">Cmd+Shift+G</code>
-        <button type="button" id="recordShortcut" class="secondary-button">录制快捷键</button>
-        <button type="button" id="resetShortcut" class="secondary-button">重置默认</button>
-        <button type="button" id="testTabSwitcher" class="secondary-button">测试打开</button>
+        <button type="button" id="recordShortcut" class="secondary-button">录制</button>
+        <button type="button" id="resetShortcut" class="secondary-button">重置</button>
+        <button type="button" id="testTabSwitcher" class="secondary-button">测试</button>
       </div>
-      <p id="shortcutHint" class="field-hint">默认 Cmd+Shift+G。保存后请刷新已打开的网页；若仍无效请到 chrome://extensions/shortcuts 手动分配</p>
+      <div class="shortcut-row">
+        <span class="shortcut-label">历史记录搜索</span>
+        <code id="historyShortcutDisplay">Cmd+Shift+H</code>
+        <button type="button" id="recordHistoryShortcut" class="secondary-button">录制</button>
+        <button type="button" id="resetHistoryShortcut" class="secondary-button">重置</button>
+        <button type="button" id="testHistorySwitcher" class="secondary-button">测试</button>
+      </div>
+      <p id="shortcutHint" class="field-hint">默认 Cmd+Shift+G / Cmd+Shift+H。保存后请刷新已打开的网页；若仍无效请到 chrome://extensions/shortcuts 手动分配</p>
     </fieldset>
   </main>
   <script src="../src/shortcut.js"></script>

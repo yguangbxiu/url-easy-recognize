@@ -5,6 +5,7 @@ const SKIPPED_URL_PREFIXES = ["chrome://", "chrome-extension://", "edge://", "ab
 const SETTINGS_POPUP_PATH = "popup/settings.html";
 const CLICK_DELAY_MS = 300;
 const TAB_SWITCHER_COMMAND = "open-tab-switcher";
+const HISTORY_SWITCHER_COMMAND = "open-history-switcher";
 const TAB_SWITCHER_POPUP = "popup/tab-switcher.html";
 const TAB_SWITCHER_FILES = ["src/shortcut.js", "src/tab-switcher.js"];
 
@@ -81,6 +82,37 @@ async function handleToggleEnabled() {
   await reapplyAllTabs();
 }
 
+async function syncHistorySwitcherCommand(settings) {
+  if (!settings.tabSwitcher?.enabled) {
+    return { ok: false, error: "功能已禁用" };
+  }
+
+  const chromeShortcut = shortcutToChromeCommand(settings.tabSwitcher.historyShortcut);
+  if (!chromeShortcut) {
+    return { ok: false, error: "历史快捷键无效" };
+  }
+
+  try {
+    await chrome.commands.update({
+      name: HISTORY_SWITCHER_COMMAND,
+      shortcut: chromeShortcut,
+    });
+    return { ok: true, chromeShortcut };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error?.message ?? String(error),
+      chromeShortcut,
+    };
+  }
+}
+
+async function syncAllSwitcherCommands(settings) {
+  const tabsResult = await syncTabSwitcherCommand(settings);
+  const historyResult = await syncHistorySwitcherCommand(settings);
+  return { tabs: tabsResult, history: historyResult };
+}
+
 async function syncTabSwitcherCommand(settings) {
   if (!settings.tabSwitcher?.enabled) {
     return { ok: false, error: "功能已禁用" };
@@ -106,14 +138,14 @@ async function syncTabSwitcherCommand(settings) {
   }
 }
 
-async function openTabSwitcherOnActiveTab() {
+async function openTabSwitcherOnActiveTab(view = "tabs") {
   const settings = getSettings();
   if (!settings.tabSwitcher?.enabled) return false;
 
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id || !isApplicableUrl(tab.url)) return false;
 
-  const open = () => chrome.tabs.sendMessage(tab.id, { type: "OPEN_TAB_SWITCHER" });
+  const open = () => chrome.tabs.sendMessage(tab.id, { type: "OPEN_TAB_SWITCHER", view });
 
   try {
     await open();
@@ -135,14 +167,23 @@ async function openTabSwitcherOnActiveTab() {
   }
 }
 
-async function openTabSwitcherPopup() {
+async function openTabSwitcherPopup(view = "tabs") {
   const settings = getSettings();
   if (!settings.tabSwitcher?.enabled) return;
 
+  const popupUrl =
+    view === "history"
+      ? `${chrome.runtime.getURL(TAB_SWITCHER_POPUP)}?view=history`
+      : chrome.runtime.getURL(TAB_SWITCHER_POPUP);
+
   if (tabSwitcherWindowId != null) {
     try {
-      await chrome.windows.get(tabSwitcherWindowId);
+      const win = await chrome.windows.get(tabSwitcherWindowId);
       await chrome.windows.update(tabSwitcherWindowId, { focused: true });
+      const [popupTab] = await chrome.tabs.query({ windowId: win.id });
+      if (popupTab?.id && view === "history") {
+        await chrome.tabs.update(popupTab.id, { url: popupUrl });
+      }
       return;
     } catch {
       tabSwitcherWindowId = null;
@@ -150,7 +191,7 @@ async function openTabSwitcherPopup() {
   }
 
   const win = await chrome.windows.create({
-    url: chrome.runtime.getURL(TAB_SWITCHER_POPUP),
+    url: popupUrl,
     type: "popup",
     width: 660,
     height: 520,
@@ -159,17 +200,17 @@ async function openTabSwitcherPopup() {
   tabSwitcherWindowId = win.id;
 }
 
-async function openTabSwitcher() {
-  const openedOnPage = await openTabSwitcherOnActiveTab();
+async function openTabSwitcher(view = "tabs") {
+  const openedOnPage = await openTabSwitcherOnActiveTab(view);
   if (!openedOnPage) {
-    await openTabSwitcherPopup();
+    await openTabSwitcherPopup(view);
   }
 }
 
 async function bootstrap() {
   await loadSettings();
   updateActionTitle(getSettings());
-  await syncTabSwitcherCommand(getSettings());
+  await syncAllSwitcherCommands(getSettings());
   await refreshBookmarkIndex();
   await reapplyAllTabs();
 }
@@ -180,7 +221,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "sync" || !changes[SETTINGS_KEY]) return;
   cachedSettings = mergeSettings(changes[SETTINGS_KEY].newValue ?? {});
   updateActionTitle(cachedSettings);
-  syncTabSwitcherCommand(cachedSettings).catch(() => {});
+  syncAllSwitcherCommands(cachedSettings).catch(() => {});
   reapplyAllTabs().catch(() => {});
 });
 
@@ -212,6 +253,62 @@ async function getTabSwitcherTabs() {
     });
 }
 
+async function getFaviconUrl(url) {
+  try {
+    const parsed = new URL(url);
+    return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(parsed.hostname)}&sz=32`;
+  } catch {
+    return "";
+  }
+}
+
+const HISTORY_MAX_RESULTS = 100;
+
+async function getTabSwitcherHistory() {
+  const items = await chrome.history.search({ text: "", maxResults: 200, startTime: 0 });
+  const settings = getSettings();
+  const seen = new Set();
+  const result = [];
+
+  for (const item of items) {
+    if (!item.url || seen.has(item.url)) continue;
+    seen.add(item.url);
+
+    let bookmarkTitle = null;
+    if (settings.enabled) {
+      const title = lookupBookmarkTitle(item.url);
+      if (title) {
+        bookmarkTitle = truncateTitle(title, settings);
+      }
+    }
+
+    result.push({
+      url: item.url,
+      title: item.title ?? "",
+      lastVisitTime: item.lastVisitTime ?? 0,
+      visitCount: item.visitCount ?? 0,
+      bookmarkTitle,
+      favIconUrl: getFaviconUrl(item.url),
+    });
+
+    if (result.length >= HISTORY_MAX_RESULTS) break;
+  }
+
+  return result;
+}
+
+async function openHistoryUrl(url) {
+  if (!url) return;
+
+  const tabs = await chrome.tabs.query({});
+  const existing = tabs.find((tab) => tab.url === url);
+  if (existing?.id != null) {
+    await activateTab(existing.id, existing.windowId);
+  } else {
+    await chrome.tabs.create({ url, active: true });
+  }
+}
+
 async function activateTab(tabId, windowId) {
   if (windowId != null) {
     await chrome.windows.update(windowId, { focused: true });
@@ -234,15 +331,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.type === "TAB_SWITCHER_GET_HISTORY") {
+    getTabSwitcherHistory()
+      .then((items) => sendResponse({ items }))
+      .catch(() => sendResponse({ items: [] }));
+    return true;
+  }
+
+  if (message.type === "TAB_SWITCHER_OPEN_URL") {
+    openHistoryUrl(message.url)
+      .then(() => sendResponse({ ok: true }))
+      .catch(() => sendResponse({ ok: false }));
+    return true;
+  }
+
   if (message.type === "OPEN_TAB_SWITCHER") {
-    openTabSwitcher()
+    openTabSwitcher(message.view ?? "tabs")
       .then(() => sendResponse({ ok: true }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
 
   if (message.type === "SYNC_TAB_SWITCHER_COMMAND") {
-    syncTabSwitcherCommand(getSettings())
+    syncAllSwitcherCommands(getSettings())
       .then((result) => sendResponse(result))
       .catch((error) => sendResponse({ ok: false, error: error?.message ?? String(error) }));
     return true;
@@ -253,7 +364,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 chrome.commands.onCommand.addListener((command) => {
   if (command === TAB_SWITCHER_COMMAND) {
-    openTabSwitcher().catch(() => {});
+    openTabSwitcher("tabs").catch(() => {});
+  }
+  if (command === HISTORY_SWITCHER_COMMAND) {
+    openTabSwitcher("history").catch(() => {});
   }
 });
 

@@ -6,7 +6,11 @@ const DEFAULTS = {
   enabled: true,
   lengthMode: "all",
   customLength: 10,
-  tabSwitcher: { ...DEFAULT_TAB_SWITCHER, shortcut: { ...DEFAULT_TAB_SWITCHER.shortcut } },
+  tabSwitcher: {
+    ...DEFAULT_TAB_SWITCHER,
+    shortcut: { ...DEFAULT_TAB_SWITCHER.shortcut },
+    historyShortcut: { ...DEFAULT_TAB_SWITCHER.historyShortcut },
+  },
 };
 
 let cachedSettings = structuredClone(DEFAULTS);

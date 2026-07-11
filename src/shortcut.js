@@ -6,9 +6,18 @@ const DEFAULT_TAB_SWITCHER_SHORTCUT = {
   key: "g",
 };
 
+const DEFAULT_HISTORY_SWITCHER_SHORTCUT = {
+  ctrl: false,
+  shift: true,
+  alt: false,
+  meta: true,
+  key: "h",
+};
+
 const DEFAULT_TAB_SWITCHER = {
   enabled: true,
   shortcut: { ...DEFAULT_TAB_SWITCHER_SHORTCUT },
+  historyShortcut: { ...DEFAULT_HISTORY_SWITCHER_SHORTCUT },
 };
 
 function isMacPlatform() {
@@ -48,10 +57,25 @@ function mergeTabSwitcherSettings(stored) {
     ...DEFAULT_TAB_SWITCHER.shortcut,
     ...(stored?.tabSwitcher?.shortcut ?? {}),
   };
+  tabSwitcher.historyShortcut = {
+    ...DEFAULT_TAB_SWITCHER.historyShortcut,
+    ...(stored?.tabSwitcher?.historyShortcut ?? {}),
+  };
 
   const shortcut = tabSwitcher.shortcut;
   if (shortcut.meta && !shortcut.shift && !shortcut.ctrl && !shortcut.alt && shortcut.key === "g") {
     tabSwitcher.shortcut = { ...DEFAULT_TAB_SWITCHER.shortcut };
+  }
+
+  const historyShortcut = tabSwitcher.historyShortcut;
+  if (
+    historyShortcut.meta &&
+    !historyShortcut.shift &&
+    !historyShortcut.ctrl &&
+    !historyShortcut.alt &&
+    historyShortcut.key === "h"
+  ) {
+    tabSwitcher.historyShortcut = { ...DEFAULT_TAB_SWITCHER.historyShortcut };
   }
 
   return tabSwitcher;

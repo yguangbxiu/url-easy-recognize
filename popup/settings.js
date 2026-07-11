@@ -4,7 +4,11 @@ const DEFAULTS = {
   enabled: true,
   lengthMode: "all",
   customLength: 10,
-  tabSwitcher: { ...DEFAULT_TAB_SWITCHER, shortcut: { ...DEFAULT_TAB_SWITCHER.shortcut } },
+  tabSwitcher: {
+    ...DEFAULT_TAB_SWITCHER,
+    shortcut: { ...DEFAULT_TAB_SWITCHER.shortcut },
+    historyShortcut: { ...DEFAULT_TAB_SWITCHER.historyShortcut },
+  },
 };
 
 const enabledRadios = document.querySelectorAll('input[name="enabled"]');
@@ -14,14 +18,18 @@ const customLengthInput = document.getElementById("customLength");
 const tabSwitcherRadios = document.querySelectorAll('input[name="tabSwitcherEnabled"]');
 const tabSwitcherSection = document.getElementById("tab-switcher-section");
 const shortcutDisplay = document.getElementById("shortcutDisplay");
+const historyShortcutDisplay = document.getElementById("historyShortcutDisplay");
 const recordShortcutButton = document.getElementById("recordShortcut");
 const resetShortcutButton = document.getElementById("resetShortcut");
 const testTabSwitcherButton = document.getElementById("testTabSwitcher");
+const recordHistoryShortcutButton = document.getElementById("recordHistoryShortcut");
+const resetHistoryShortcutButton = document.getElementById("resetHistoryShortcut");
+const testHistorySwitcherButton = document.getElementById("testHistorySwitcher");
 const shortcutHint = document.getElementById("shortcutHint");
 
 let currentSettings = structuredClone(DEFAULTS);
 let saving = false;
-let recordingShortcut = false;
+let recordingTarget = null;
 
 function mergeSettings(stored) {
   return {
@@ -50,11 +58,26 @@ async function writeSettings(partial) {
 async function syncShortcutToSystem() {
   try {
     const result = await chrome.runtime.sendMessage({ type: "SYNC_TAB_SWITCHER_COMMAND" });
-    if (result?.ok) {
-      shortcutHint.textContent = `快捷键已生效：${formatShortcut(currentSettings.tabSwitcher.shortcut)}（系统：${result.chromeShortcut}）`;
+    const tabsShortcut = formatShortcut(currentSettings.tabSwitcher.shortcut);
+    const historyShortcut = formatShortcut(currentSettings.tabSwitcher.historyShortcut);
+
+    if (result?.tabs?.ok && result?.history?.ok) {
+      shortcutHint.textContent = `快捷键已生效：${tabsShortcut} / ${historyShortcut}`;
       return;
     }
-    shortcutHint.textContent = `快捷键已保存为 ${formatShortcut(currentSettings.tabSwitcher.shortcut)}，在网页中可直接使用；系统快捷键注册失败，请到 chrome://extensions/shortcuts 手动分配`;
+
+    const parts = [];
+    if (result?.tabs?.ok) {
+      parts.push(`${tabsShortcut}（系统：${result.tabs.chromeShortcut}）`);
+    } else {
+      parts.push(tabsShortcut);
+    }
+    if (result?.history?.ok) {
+      parts.push(`${historyShortcut}（系统：${result.history.chromeShortcut}）`);
+    } else {
+      parts.push(historyShortcut);
+    }
+    shortcutHint.textContent = `快捷键已保存：${parts.join(" / ")}。若系统注册失败，请到 chrome://extensions/shortcuts 手动分配`;
   } catch {
     shortcutHint.textContent = "快捷键已保存，请刷新网页后使用";
   }
@@ -68,14 +91,19 @@ function updateLengthSectionState() {
 
 function updateTabSwitcherSectionState() {
   const enabled = currentSettings.tabSwitcher.enabled;
+  const recording = recordingTarget != null;
   tabSwitcherSection.classList.toggle("disabled", !enabled);
-  recordShortcutButton.disabled = !enabled || recordingShortcut;
-  resetShortcutButton.disabled = !enabled || recordingShortcut;
-  testTabSwitcherButton.disabled = !enabled || recordingShortcut;
+  recordShortcutButton.disabled = !enabled || recording;
+  resetShortcutButton.disabled = !enabled || recording;
+  testTabSwitcherButton.disabled = !enabled || recording;
+  recordHistoryShortcutButton.disabled = !enabled || recording;
+  resetHistoryShortcutButton.disabled = !enabled || recording;
+  testHistorySwitcherButton.disabled = !enabled || recording;
 }
 
 function syncShortcutDisplay() {
   shortcutDisplay.textContent = formatShortcut(currentSettings.tabSwitcher.shortcut);
+  historyShortcutDisplay.textContent = formatShortcut(currentSettings.tabSwitcher.historyShortcut);
 }
 
 function syncFormFromSettings() {
@@ -94,20 +122,23 @@ function syncFormFromSettings() {
   updateTabSwitcherSectionState();
 }
 
-function startShortcutRecording() {
-  if (recordingShortcut || !currentSettings.tabSwitcher.enabled) return;
+function startShortcutRecording(target) {
+  if (recordingTarget || !currentSettings.tabSwitcher.enabled) return;
 
-  recordingShortcut = true;
-  recordShortcutButton.textContent = "请按下快捷键…";
-  recordShortcutButton.disabled = true;
-  resetShortcutButton.disabled = true;
+  const isHistory = target === "history";
+  const recordButton = isHistory ? recordHistoryShortcutButton : recordShortcutButton;
+  const defaultHint = "默认 Cmd+Shift+G / Cmd+Shift+H。若无效，请到 chrome://extensions/shortcuts 手动分配";
+
+  recordingTarget = target;
+  recordButton.textContent = "请按下快捷键…";
+  updateTabSwitcherSectionState();
   shortcutHint.textContent = "按下目标组合键，需包含 Ctrl / Cmd / Alt / Shift 之一";
 
   const finish = () => {
-    recordingShortcut = false;
-    recordShortcutButton.textContent = "录制快捷键";
+    recordingTarget = null;
+    recordButton.textContent = "录制";
     updateTabSwitcherSectionState();
-    shortcutHint.textContent = "默认 Cmd+Shift+G。若无效，请到 chrome://extensions/shortcuts 手动分配";
+    shortcutHint.textContent = defaultHint;
     window.removeEventListener("keydown", handleRecordKeydown, true);
   };
 
@@ -128,7 +159,8 @@ function startShortcutRecording() {
 
     saving = true;
     try {
-      await writeSettings({ tabSwitcher: { shortcut } });
+      const partial = isHistory ? { historyShortcut: shortcut } : { shortcut };
+      await writeSettings({ tabSwitcher: partial });
       syncShortcutDisplay();
       await syncShortcutToSystem();
     } finally {
@@ -200,10 +232,11 @@ async function init() {
     });
   }
 
-  recordShortcutButton.addEventListener("click", startShortcutRecording);
+  recordShortcutButton.addEventListener("click", () => startShortcutRecording("tabs"));
+  recordHistoryShortcutButton.addEventListener("click", () => startShortcutRecording("history"));
 
   resetShortcutButton.addEventListener("click", async () => {
-    if (saving || recordingShortcut) return;
+    if (saving || recordingTarget) return;
     saving = true;
     try {
       await writeSettings({
@@ -218,10 +251,35 @@ async function init() {
     }
   });
 
-  testTabSwitcherButton.addEventListener("click", async () => {
-    if (recordingShortcut) return;
+  resetHistoryShortcutButton.addEventListener("click", async () => {
+    if (saving || recordingTarget) return;
+    saving = true;
     try {
-      await chrome.runtime.sendMessage({ type: "OPEN_TAB_SWITCHER" });
+      await writeSettings({
+        tabSwitcher: {
+          historyShortcut: { ...DEFAULT_TAB_SWITCHER.historyShortcut },
+        },
+      });
+      syncShortcutDisplay();
+      await syncShortcutToSystem();
+    } finally {
+      saving = false;
+    }
+  });
+
+  testTabSwitcherButton.addEventListener("click", async () => {
+    if (recordingTarget) return;
+    try {
+      await chrome.runtime.sendMessage({ type: "OPEN_TAB_SWITCHER", view: "tabs" });
+    } catch {
+      shortcutHint.textContent = "打开失败，请重新加载扩展后重试";
+    }
+  });
+
+  testHistorySwitcherButton.addEventListener("click", async () => {
+    if (recordingTarget) return;
+    try {
+      await chrome.runtime.sendMessage({ type: "OPEN_TAB_SWITCHER", view: "history" });
     } catch {
       shortcutHint.textContent = "打开失败，请重新加载扩展后重试";
     }
